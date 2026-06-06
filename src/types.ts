@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type InstrumentType = 'vocals' | 'drums' | 'bass' | 'other';
+
 export interface SpatialNode {
   time: number;
   x: number;
@@ -14,12 +16,23 @@ export interface SpatialNode {
   elevationAngle: number;
 }
 
-export interface AudioAnalysisResult {
-  bpm: number;
+export interface TrackAnalysis {
   peakEnergy: number;
   energyProfile: number[];
   path: SpatialNode[];
+  type: InstrumentType;
   duration: number;
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  buffer: AudioBuffer;
+  type: InstrumentType;
+  analysis: TrackAnalysis;
+  isMuted: boolean;
+  isSoloed: boolean;
+  volume: number;
 }
 
 export interface PlaybackState {
