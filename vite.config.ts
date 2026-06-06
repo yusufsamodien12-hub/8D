@@ -3,9 +3,11 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
+  const isBuild = command === 'build';
+
   return {
-    base: '/8D/',
+    base: isBuild ? '/8D/' : '/',
     build: {
       outDir: 'docs',
     },
