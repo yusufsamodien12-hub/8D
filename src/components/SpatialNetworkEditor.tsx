@@ -455,224 +455,176 @@ export function SpatialNetworkEditor({ tracks, currentTime, onUpdateTrackPath }:
   };
 
   return (
-    <div className="app">
-      <style>{`*{box-sizing:border-box;margin:0;padding:0}
-      .app{background:#06060f;display:flex;flex-direction:column;height:700px;font-family:'Courier New',monospace;font-size:11px;color:#7777aa;overflow:hidden}
-      .topbar{background:#09091a;border-bottom:1px solid #111128;display:flex;align-items:center;gap:0;height:30px;flex-shrink:0;padding:0 8px}
-      .song-title{color:#5555aa;font-size:10px;letter-spacing:.1em;padding:0 12px 0 4px;border-right:1px solid #111128;margin-right:8px}
-      .song-title span{color:#9090ff}
-      .transport{display:flex;align-items:center;gap:6px}
-      .tbtn{background:transparent;border:0.5px solid #1a1a35;border-radius:3px;color:#444488;font-family:'Courier New',monospace;font-size:10px;padding:2px 8px;cursor:pointer;letter-spacing:.06em}
-      .tbtn:hover{color:#7070cc;border-color:#2a2a55}
-      .tbtn.on{color:#9090ff;border-color:#4040a0;background:#0d0d28}
-      .timecode{font-size:12px;color:#6060cc;letter-spacing:.12em;padding:0 10px;border-left:1px solid #111128;border-right:1px solid #111128;margin:0 6px}
-      .bpm-box{font-size:9px;color:#333360;padding:0 8px;border-right:1px solid #111128}
-      .bpm-box span{color:#5050a0}
-      .meters{margin-left:auto;display:flex;align-items:center;gap:8px}
-      .m-bar{width:50px;height:3px;background:#0d0d1e;border-radius:2px;overflow:hidden}
-      .m-fill{height:100%;border-radius:2px}
-      .m-lbl{font-size:8px;color:#2a2a4a;letter-spacing:.08em}
-      .body{display:flex;flex:1;overflow:hidden}
-      .left-panel{width:200px;flex-shrink:0;background:#080814;border-right:1px solid #0f0f22;display:flex;flex-direction:column;overflow:hidden}
-      .lp-head{padding:8px 10px;border-bottom:0.5px solid #0f0f22;font-size:8px;color:#2a2a50;letter-spacing:.12em;text-transform:uppercase}
-      .stem-list{flex:1;overflow-y:auto}
-      .stem-list::-webkit-scrollbar{width:2px}
-      .stem-list::-webkit-scrollbar-thumb{background:#111128}
-      .stem-entry{padding:7px 10px;border-bottom:0.5px solid #0c0c1e;cursor:pointer;transition:background .1s;color:#9090cc}
-      .stem-entry:hover{background:#0d0d22}
-      .stem-entry.sel{background:#0f0f26;border-left:2px solid var(--sc)}
-      .stem-top{display:flex;align-items:center;gap:7px;margin-bottom:5px}
-      .s-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--sc)}
-      .s-name{font-size:10px;color:#8080b0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .stem-entry.sel .s-name{color:#b0b0e0}
-      .stem-params{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:8px}
-      .sp-item{display:flex;flex-direction:column;gap:1px}
-      .sp-lbl{color:#303050;letter-spacing:.06em;font-size:7px;text-transform:uppercase}
-      .sp-val{color:#6060a0;font-size:9px}
-      .vstrip{display:flex;gap:2px;margin-top:4px;align-items:flex-end;height:14px}
-      .vbar{flex:1;background:#0d0d20;border-radius:1px;overflow:hidden;height:100%;display:flex;align-items:flex-end}
-      .vbar-fill{width:100%;border-radius:1px;transition:height .08s}
-      .mid-col{flex:1;display:flex;flex-direction:column;overflow:hidden}
-      .viewport3d{flex:1;position:relative;overflow:hidden;background:#06060f;min-height:0}
-      canvas#c3{display:block;width:100%;height:100%}
-      .v-hud{position:absolute;top:6px;left:6px;display:flex;flex-direction:column;gap:3px;pointer-events:none}
-      .hud-pill{background:rgba(6,6,15,.9);border:0.5px solid #111128;border-radius:3px;padding:2px 7px;font-size:8px;color:#4444aa;letter-spacing:.08em}
-      .hud-pill span{color:#8888ff}
-      .view-sw{position:absolute;top:6px;right:6px;display:flex;gap:3px}
-      .vbtn{background:rgba(8,8,20,.9);border:0.5px solid #111128;border-radius:3px;padding:2px 8px;font-size:8px;color:#333366;cursor:pointer;letter-spacing:.06em}
-      .vbtn.on{color:#7777ff;border-color:#303090}
-      .coord-row{position:absolute;bottom:6px;left:6px;display:flex;gap:5px}
-      .cbox{background:rgba(6,6,15,.9);border:0.5px solid #0f0f22;border-radius:3px;padding:3px 8px}
-      .c-lbl{font-size:7px;color:#2a2a4a;text-transform:uppercase;letter-spacing:.1em}
-      .c-val{font-size:12px;color:#6666ff;font-weight:500;margin-top:1px}
-      .timeline-area{height:140px;flex-shrink:0;background:#07070f;border-top:1px solid #0f0f22;display:flex;flex-direction:column;overflow:hidden}
-      .tl-ruler{height:20px;background:#08081a;border-bottom:0.5px solid #0f0f22;position:relative;flex-shrink:0}
-      canvas#ruler{display:block;width:100%;height:100%}
-      .tl-lanes{flex:1;overflow-y:auto;overflow-x:hidden}
-      .tl-lanes::-webkit-scrollbar{width:2px;height:2px}
-      .tl-lanes::-webkit-scrollbar-thumb{background:#111128}
-      .tl-lane{display:flex;height:18px;border-bottom:0.5px solid #0a0a18;align-items:center}
-      .lane-label{width:90px;flex-shrink:0;padding:0 8px;font-size:8px;color:#333360;letter-spacing:.05em;border-right:0.5px solid #0d0d20;overflow:hidden;white-space:nowrap}
-      .lane-canvas-wrap{flex:1;position:relative;height:100%;overflow:hidden}
-      canvas.lane-cv{display:block;width:100%;height:100%;position:absolute;top:0;left:0}
-      .right-panel{width:200px;flex-shrink:0;background:#080814;border-left:1px solid #0f0f22;display:flex;flex-direction:column;overflow:hidden}
-      .rp-tabs{display:flex;border-bottom:0.5px solid #0f0f22}
-      .rptab{flex:1;padding:5px 0;text-align:center;font-size:8px;color:#2a2a4a;letter-spacing:.08em;cursor:pointer;border-right:0.5px solid #0f0f22}
-      .rptab:last-child{border-right:none}
-      .rptab.on{color:#6666cc;background:#0a0a1e}
-      .rp-body{flex:1;overflow-y:auto;padding:8px}
-      .rp-body::-webkit-scrollbar{width:2px}
-      .rp-body::-webkit-scrollbar-thumb{background:#111128}
-      .ctrl-grp{margin-bottom:10px}
-      .cg-title{font-size:8px;color:#2a2a48;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;padding-bottom:3px;border-bottom:0.5px solid #0d0d20}
-      .ctrl-row{margin-bottom:6px}
-      .cr-head{display:flex;justify-content:space-between;margin-bottom:2px}
-      .cr-lbl{font-size:8px;color:#404068;letter-spacing:.05em}
-      .cr-val{font-size:9px;color:#6666b0;font-weight:500}
-      input[type=range]{width:100%;height:2px;accent-color:#5555bb;cursor:pointer}
-      .analysis-mini{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px}
-      .am-box{background:#09091e;border:0.5px solid #0f0f28;border-radius:4px;padding:5px 7px}
-      .am-lbl{font-size:7px;color:#2a2a4a;letter-spacing:.1em;text-transform:uppercase}
-      .am-val{font-size:13px;color:#5555cc;font-weight:500;margin-top:2px}
-      .polar-mini{height:80px;margin-bottom:8px;border-radius:4px;overflow:hidden}
-      canvas#polmini{display:block;width:100%;height:100%}
-      .enum-row{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px}
-      .etag{padding:2px 6px;border-radius:3px;font-size:8px;border:0.5px solid #111128;color:#303060;cursor:pointer;letter-spacing:.04em}
-      .etag.on{background:#0d0d2a;border-color:#282880;color:#6666dd}
-      .etag:hover{color:#5050a0}
-      .snap-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}
-      .snap-btn{padding:4px 0;border-radius:3px;border:0.5px solid #111128;background:transparent;color:#303060;font-family:'Courier New',monospace;font-size:8px;letter-spacing:.04em;cursor:pointer;text-align:center}
-      .snap-btn:hover{color:#5555aa;border-color:#222260}
-      .analysis-mini{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px}
-      .am-box{background:#09091e;border:0.5px solid #0f0f28;border-radius:4px;padding:5px 7px}
-      .am-lbl{font-size:7px;color:#2a2a4a;letter-spacing:.1em;text-transform:uppercase}
-      .am-val{font-size:13px;color:#5555cc;font-weight:500;margin-top:2px}
-      `}</style>
-      <div className="topbar">
-        <div className="song-title">PROJECT: <span>NEON HYMN</span></div>
-        <div className="transport">
-          <button className="tbtn" onClick={() => { setPlayTime(0); setPlaying(false); }}>⏮</button>
-          <button className={`tbtn ${playing ? 'on' : ''}`} onClick={() => setPlaying((p) => !p)}>{playing ? '⏸ PAUSE' : '▶ PLAY'}</button>
-          <button className="tbtn" onClick={() => { setPlaying(false); setPlayTime(0); }}>⏹</button>
-          <button className={`tbtn ${looping ? 'on' : ''}`} onClick={() => setLooping((l) => !l)}>⟳ LOOP</button>
+    <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 text-zinc-100">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-xs uppercase tracking-[0.32em] text-zinc-500">Neon Spatial Mixer</div>
+          <div className="mt-1 text-2xl font-semibold tracking-tight text-zinc-100">Spatial Network Editor</div>
         </div>
-        <div className="timecode">{formatTime(playTime)}</div>
-        <div className="bpm-box">BPM <span>128</span> · 4/4</div>
-        <div className="meters">
-          <span className="m-lbl">L</span><div className="m-bar"><div className="m-fill" id="mL" style={{ background: '#4444aa', width: '45%' }} /></div>
-          <span className="m-lbl">R</span><div className="m-bar"><div className="m-fill" id="mR" style={{ background: '#4444aa', width: '50%' }} /></div>
-          <span className="m-lbl">CPU</span><div className="m-bar"><div className="m-fill" id="mCPU" style={{ background: '#333388', width: '28%' }} /></div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.24em] text-zinc-500">
+          <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1">Track: {selectedTrack?.name || selectedTrack?.type || 'Unknown'}</span>
+          <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1">Mode: {pathMode.toUpperCase()}</span>
         </div>
       </div>
-      <div className="body">
-        <div className="left-panel">
-          <div className="lp-head">SONG STEMS</div>
-          <div className="stem-list">
-            {tracks.map((track) => {
-              const color = stemColors[track.type] || '#9090ff';
-              return (
-                <div key={track.id} className={`stem-entry${track.id === selectedId ? ' sel' : ''}`} style={{ '--sc': color } as React.CSSProperties} onClick={() => setSelectedId(track.id)}>
-                  <div className="stem-top">
-                    <div className="s-dot" />
-                    <span className="s-name">{track.name || track.type}</span>
-                  </div>
-                  <div className="stem-params">
-                    <div className="sp-item"><div className="sp-lbl">AZ</div><div className="sp-val">{Math.round(params.az)}°</div></div>
-                    <div className="sp-item"><div className="sp-lbl">EL</div><div className="sp-val">{Math.round(params.el)}°</div></div>
-                    <div className="sp-item"><div className="sp-lbl">DIST</div><div className="sp-val">{(params.dist / 10).toFixed(1)}m</div></div>
-                    <div className="sp-item"><div className="sp-lbl">WIDTH</div><div className="sp-val">{params.width}°</div></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="mid-col">
-          <div className="viewport3d">
-            <canvas id="c3" ref={canvasRef} />
-            <div className="v-hud">
-              <div className="hud-pill">FIELD: <span>{viewMode === 'persp' ? 'SPHERICAL' : viewMode.toUpperCase()}</span></div>
-              <div className="hud-pill">HRTF: <span>{hrtfMode === 'kemar' ? 'KEMAR' : hrtfMode.toUpperCase()}</span></div>
-              <div className="hud-pill">ROOM: <span>{roomPreset === 'studioA' ? 'STUDIO A' : roomPreset.toUpperCase()}</span></div>
-            </div>
-            <div className="view-sw">
-              <button className={`vbtn ${viewMode === 'persp' ? 'on' : ''}`} onClick={() => setViewMode('persp')}>PERSP</button>
-              <button className={`vbtn ${viewMode === 'top' ? 'on' : ''}`} onClick={() => setViewMode('top')}>TOP</button>
-              <button className={`vbtn ${viewMode === 'front' ? 'on' : ''}`} onClick={() => setViewMode('front')}>FRONT</button>
-              <button className={`vbtn ${viewMode === 'side' ? 'on' : ''}`} onClick={() => setViewMode('side')}>SIDE</button>
-            </div>
-            <div className="coord-row">
-              <div className="cbox"><div className="c-lbl">Az</div><div className="c-val">{Math.round(params.az)}°</div></div>
-              <div className="cbox"><div className="c-lbl">El</div><div className="c-val">{Math.round(params.el)}°</div></div>
-              <div className="cbox"><div className="c-lbl">Dist</div><div className="c-val">{(params.dist / 10).toFixed(1)}m</div></div>
-              <div className="cbox"><div className="c-lbl">Width</div><div className="c-val">{params.width}°</div></div>
+
+      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <aside className="space-y-4">
+          <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
+            <div className="text-xs uppercase tracking-[0.28em] text-zinc-500">Loaded Stems</div>
+            <div className="mt-3 space-y-2 max-h-[520px] overflow-y-auto pr-1">
+              {tracks.map((track) => {
+                const color = stemColors[track.type] || '#9090ff';
+                return (
+                  <button
+                    key={track.id}
+                    className={`w-full rounded-2xl border px-3 py-3 text-left transition ${track.id === selectedId ? 'border-lime-400 bg-zinc-800 shadow-[0_0_20px_rgba(83,255,129,0.08)]' : 'border-zinc-800 bg-zinc-950/50 hover:border-zinc-600 hover:bg-zinc-900'}`}
+                    style={{ '--sc': color } as React.CSSProperties}
+                    onClick={() => setSelectedId(track.id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-3.5 w-3.5 rounded-full" style={{ backgroundColor: color }} />
+                      <span className="text-sm font-medium text-zinc-100 truncate">{track.name || track.type}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                      <div className="space-y-0.5"><div>AZ</div><div className="text-zinc-300">{Math.round(params.az)}°</div></div>
+                      <div className="space-y-0.5"><div>EL</div><div className="text-zinc-300">{Math.round(params.el)}°</div></div>
+                      <div className="space-y-0.5"><div>DIST</div><div className="text-zinc-300">{(params.dist / 10).toFixed(1)}m</div></div>
+                      <div className="space-y-0.5"><div>WIDTH</div><div className="text-zinc-300">{params.width}°</div></div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
-          <div className="timeline-area">
-            <div className="tl-ruler"><canvas id="ruler" ref={rulerRef} /></div>
-            <div className="tl-lanes">
+
+          <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+            <div className="text-xs uppercase tracking-[0.28em] text-zinc-500">Quick Place</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => updateParam('az', 0)}>Front</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => updateParam('az', 180)}>Back</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => updateParam('az', 270)}>Left</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => updateParam('az', 90)}>Right</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => { updateParam('az', 0); updateParam('el', 60); }}>Above</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => { updateParam('az', 0); updateParam('el', -60); }}>Below</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => { updateParam('dist', 30); updateParam('r', 30); }}>Close</button>
+              <button className="rounded-2xl border border-zinc-800 bg-zinc-950 py-2 text-xs uppercase tracking-[0.18em] text-zinc-300 transition hover:border-lime-400" onClick={() => { updateParam('dist', 50); updateParam('r', 80); }}>Far</button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="space-y-4">
+          <div className="relative overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 shadow-[0_0_45px_rgba(0,0,0,0.12)]">
+            <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-[0.32em] text-zinc-500">Spatial Field</div>
+                <div className="text-lg font-semibold text-zinc-100">Live Path Visualization</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.24em] text-zinc-400">
+                <span className="rounded-full bg-zinc-950/80 px-3 py-1 border border-zinc-800">View: {viewMode}</span>
+                <span className="rounded-full bg-zinc-950/80 px-3 py-1 border border-zinc-800">HRTF: {hrtfMode}</span>
+                <span className="rounded-full bg-zinc-950/80 px-3 py-1 border border-zinc-800">Room: {roomPreset}</span>
+              </div>
+            </div>
+
+            <div className="relative h-[380px] bg-[#06060f]">
+              <canvas id="c3" ref={canvasRef} className="absolute inset-0 h-full w-full" />
+              <div className="absolute inset-x-4 top-4 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-zinc-950/80 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">Field: {viewMode === 'persp' ? 'Spherical' : viewMode}</span>
+                <span className="rounded-full bg-zinc-950/80 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">HRTF: {hrtfMode === 'kemar' ? 'KEMAR' : hrtfMode.toUpperCase()}</span>
+              </div>
+              <div className="absolute bottom-4 left-4 flex flex-wrap gap-2">
+                <div className="rounded-full bg-zinc-950/80 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">Az {Math.round(params.az)}°</div>
+                <div className="rounded-full bg-zinc-950/80 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">El {Math.round(params.el)}°</div>
+                <div className="rounded-full bg-zinc-950/80 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">Dist {(params.dist / 10).toFixed(1)}m</div>
+                <div className="rounded-full bg-zinc-950/80 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">Width {params.width}°</div>
+              </div>
+              <div className="absolute top-4 right-4 flex flex-wrap items-center gap-2">
+                {(['persp', 'top', 'front', 'side'] as const).map((mode) => (
+                  <button key={mode} className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.18em] transition ${viewMode === mode ? 'border-lime-400 bg-lime-500/10 text-lime-300' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-600'}`} onClick={() => setViewMode(mode)}>
+                    {mode.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+            <div className="h-8 border-b border-zinc-800">
+              <canvas id="ruler" ref={rulerRef} className="w-full h-full" />
+            </div>
+            <div className="max-h-[220px] overflow-y-auto">
               {tracks.map((track, index) => (
-                <div key={track.id} className="tl-lane">
-                  <div className="lane-label">{track.name || track.type}</div>
-                  <div className="lane-canvas-wrap">
-                    <canvas className="lane-cv" ref={(el) => { laneRefs.current[index] = el; }} />
+                <div key={track.id} className="flex h-14 items-center gap-3 border-b border-zinc-800 last:border-b-0 px-4">
+                  <div className="w-24 text-[11px] uppercase tracking-[0.16em] text-zinc-500">{track.name || track.type}</div>
+                  <div className="flex-1 relative h-full">
+                    <canvas className="lane-cv absolute inset-0 h-full w-full" ref={(el) => { laneRefs.current[index] = el; }} />
                   </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-        <div className="right-panel">
-          <div className="rp-tabs">
-            <div className="rptab on">SPATIAL</div>
-            <div className="rptab">BINAURAL</div>
-            <div className="rptab">ROOM</div>
+
+        <div className="flex flex-col gap-4 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-3 text-xs uppercase tracking-[0.28em] text-zinc-500">Motion</div>
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-3 text-xs uppercase tracking-[0.28em] text-zinc-500">Room</div>
           </div>
-          <div className="rp-body">
-            <div className="polar-mini"><canvas id="polmini" ref={polarRef} /></div>
-            <div className="analysis-mini">
-              <div className="am-box"><div className="am-lbl">ITD</div><div className="am-val">0µs</div></div>
-              <div className="am-box"><div className="am-lbl">ILD</div><div className="am-val">0dB</div></div>
-              <div className="am-box"><div className="am-lbl">NEAR</div><div className="am-val">{(params.dist / 10).toFixed(1)}m</div></div>
-              <div className="am-box"><div className="am-lbl">SPREAD</div><div className="am-val">{params.width}°</div></div>
-            </div>
-            <div className="ctrl-grp">
-              <div className="cg-title">POSITION</div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">AZIMUTH (L ↔ R)</span><span className="cr-val">{Math.round(params.az)}°</span></div><input type="range" min="0" max="359" step="1" value={params.az} onChange={(e) => updateParam('az', Number(e.target.value))} /></div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">ELEVATION (↓ ↑)</span><span className="cr-val">{Math.round(params.el)}°</span></div><input type="range" min="-80" max="80" step="1" value={params.el} onChange={(e) => updateParam('el', Number(e.target.value))} /></div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">DISTANCE (FAR ↔ NEAR)</span><span className="cr-val">{(params.dist / 10).toFixed(1)}m</span></div><input type="range" min="10" max="60" step="1" value={params.dist} onChange={(e) => updateParam('dist', Number(e.target.value))} /></div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">SPREAD / WIDTH</span><span className="cr-val">{params.width}°</span></div><input type="range" min="0" max="180" step="1" value={params.width} onChange={(e) => updateParam('width', Number(e.target.value))} /></div>
-            </div>
-            <div className="ctrl-grp">
-              <div className="cg-title">ORBIT</div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">ORBIT RADIUS</span><span className="cr-val">{params.r}%</span></div><input type="range" min="5" max="100" step="1" value={params.r} onChange={(e) => updateParam('r', Number(e.target.value))} /></div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">SPEED</span><span className="cr-val">{(params.sp / 10).toFixed(1)}×</span></div><input type="range" min="0" max="40" step="1" value={params.sp} onChange={(e) => updateParam('sp', Number(e.target.value))} /></div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">ELEV WAVE</span><span className="cr-val">{params.ew}°</span></div><input type="range" min="0" max="70" step="1" value={params.ew} onChange={(e) => updateParam('ew', Number(e.target.value))} /></div>
-            </div>
-            <div className="ctrl-grp">
-              <div className="cg-title">VOLUME</div>
-              <div className="ctrl-row"><div className="cr-head"><span className="cr-lbl">LEVEL</span><span className="cr-val">{Math.round(params.vol * 100)}%</span></div><input type="range" min="0" max="100" step="1" value={Math.round(params.vol * 100)} onChange={(e) => updateParam('vol', Number(e.target.value) / 100)} /></div>
-            </div>
-            <div className="ctrl-grp">
-              <div className="cg-title">QUICK PLACE</div>
-              <div className="snap-grid">
-                <button className="snap-btn" onClick={() => updateParam('az', 0)}>FRONT</button>
-                <button className="snap-btn" onClick={() => updateParam('az', 180)}>BACK</button>
-                <button className="snap-btn" onClick={() => updateParam('az', 270)}>LEFT</button>
-                <button className="snap-btn" onClick={() => updateParam('az', 90)}>RIGHT</button>
-                <button className="snap-btn" onClick={() => { updateParam('az', 0); updateParam('el', 60); }}>ABOVE</button>
-                <button className="snap-btn" onClick={() => { updateParam('az', 0); updateParam('el', -60); }}>BELOW</button>
-                <button className="snap-btn" onClick={() => { updateParam('dist', 30); updateParam('r', 30); }}>CLOSE</button>
-                <button className="snap-btn" onClick={() => { updateParam('dist', 50); updateParam('r', 80); }}>FAR</button>
+
+          <div className="grid gap-3">
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-3 text-[10px] uppercase tracking-[0.18em] text-zinc-400">
+                <div className="rounded-2xl bg-zinc-900/80 p-2">ITD</div>
+                <div className="rounded-2xl bg-zinc-900/80 p-2">ILD</div>
+                <div className="rounded-2xl bg-zinc-900/80 p-2">Near</div>
+                <div className="rounded-2xl bg-zinc-900/80 p-2">Spread</div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm text-zinc-100">
+                <div>{'0µs'}</div>
+                <div>{'0dB'}</div>
+                <div>{(params.dist / 10).toFixed(1)}m</div>
+                <div>{params.width}°</div>
               </div>
             </div>
-            <div className="ctrl-grp">
-              <div className="cg-title">PATH TYPE</div>
-              <div className="enum-row">
+
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-3 space-y-4 text-sm text-zinc-100">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  <span>Orbit radius</span>
+                  <span>{params.r}%</span>
+                </div>
+                <input type="range" min="5" max="100" step="1" value={params.r} onChange={(e) => updateParam('r', Number(e.target.value))} className="w-full accent-lime-400" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  <span>Speed</span>
+                  <span>{(params.sp / 10).toFixed(1)}×</span>
+                </div>
+                <input type="range" min="0" max="40" step="1" value={params.sp} onChange={(e) => updateParam('sp', Number(e.target.value))} className="w-full accent-lime-400" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  <span>Elev wave</span>
+                  <span>{params.ew}°</span>
+                </div>
+                <input type="range" min="0" max="70" step="1" value={params.ew} onChange={(e) => updateParam('ew', Number(e.target.value))} className="w-full accent-lime-400" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  <span>Volume</span>
+                  <span>{Math.round(params.vol * 100)}%</span>
+                </div>
+                <input type="range" min="0" max="100" step="1" value={Math.round(params.vol * 100)} onChange={(e) => updateParam('vol', Number(e.target.value) / 100)} className="w-full accent-lime-400" />
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-3 space-y-3">
+              <div className="text-xs uppercase tracking-[0.28em] text-zinc-500">Path Type</div>
+              <div className="grid grid-cols-2 gap-2">
                 {(['orbit', 'figure8', 'rise', 'fixed'] as PathMode[]).map((mode) => (
-                  <div key={mode} className={`etag ${pathMode === mode ? 'on' : ''}`} onClick={() => { setPathMode(mode); updateParam('path', mode); }}>
+                  <button key={mode} className={`rounded-2xl border px-3 py-2 text-xs uppercase tracking-[0.18em] transition ${pathMode === mode ? 'border-lime-400 bg-lime-500/15 text-lime-200' : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'}`} onClick={() => { setPathMode(mode); updateParam('path', mode); }}>
                     {mode === 'orbit' ? 'Orbit' : mode === 'figure8' ? 'Figure-8' : mode === 'rise' ? 'Rise' : 'Fixed'}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
