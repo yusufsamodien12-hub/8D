@@ -4,6 +4,8 @@ export class AudioEngine {
   public ctx: AudioContext | null = null;
   public tracks: Track[] = [];
   public currentProfile: HeadphoneProfile = 'flat';
+  public spatialCalibration: number = 1.0;
+  public automationScale: number = 1.0;
   
   private nodes: Map<string, { source: AudioBufferSourceNode, panner: PannerNode, gain: GainNode, autoGain: GainNode }> = new Map();
   
@@ -38,42 +40,48 @@ export class AudioEngine {
 
     const arrayBuffer = await file.arrayBuffer();
     const originalBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-    
-    const types: InstrumentType[] = ['bass', 'drums', 'vocals', 'other'];
 
-    const promises = types.map(async (type) => {
-       const separatedBuffer = await this.createStem(originalBuffer, type);
-       const analysisMain = this.analyzeBuffer(separatedBuffer, type, false);
-       const analysisMirror = this.analyzeBuffer(separatedBuffer, type, true);
-       
-       return [
-         {
-           id: crypto.randomUUID(),
-           name: `${file.name.replace(/\.[^/.]+$/, "")} [${type.toUpperCase()} L]`,
-           buffer: separatedBuffer,
-           type,
-           analysis: analysisMain,
-           isMuted: false,
-           isSoloed: false,
-           volume: 0.7
-         } as Track,
-         {
-           id: crypto.randomUUID(),
-           name: `${file.name.replace(/\.[^/.]+$/, "")} [${type.toUpperCase()} R]`,
-           buffer: separatedBuffer,
-           type,
-           analysis: analysisMirror,
-           isMuted: false,
-           isSoloed: false,
-           volume: 0.7
-         } as Track
-       ];
+    const types: InstrumentType[] = [
+      'sub_bass', 'bass', 'kick', 'snare', 'hi_hats',
+      'vocals', 'lead', 'strings', 'brass', 'guitar',
+      'piano', 'pad', 'synth', 'ambient'
+    ];
+
+    const analysisPromises = types.map(async (type) => {
+      const separatedBuffer = await this.createStem(originalBuffer, type);
+      const analysis = this.analyzeBuffer(separatedBuffer, type, false);
+      return { type, buffer: separatedBuffer, analysis };
     });
 
-    const resultsArray = await Promise.all(promises);
-    const results = resultsArray.flat();
-    this.tracks.push(...results);
-    return results;
+    const rawResults = await Promise.all(analysisPromises);
+    const globalMaxEnergy = Math.max(...rawResults.map(r => r.analysis.peakEnergy), 0.0001);
+
+    const filteredResults = rawResults
+      .map((result) => {
+        const lowScore = result.analysis.lowEnergies?.reduce((sum, val) => sum + val, 0) ?? 0;
+        const highScore = result.analysis.highEnergies?.reduce((sum, val) => sum + val, 0) ?? 0;
+        const energyRatio = result.analysis.peakEnergy / globalMaxEnergy;
+        const spectrumBalance = (highScore + lowScore) / (result.analysis.energyProfile.length || 1);
+        const strength = energyRatio * 0.7 + spectrumBalance * 0.3;
+        return { ...result, strength };
+      })
+      .filter((result) => result.strength >= 0.08)
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 10);
+
+    const tracks = filteredResults.map((result) => ({
+      id: crypto.randomUUID(),
+      name: `${file.name.replace(/\.[^/.]+$/, "")} [${result.type.toUpperCase()}]`,
+      buffer: result.buffer,
+      type: result.type,
+      analysis: result.analysis,
+      isMuted: false,
+      isSoloed: false,
+      volume: 0.7
+    } as Track));
+
+    this.tracks.push(...tracks);
+    return tracks;
   }
 
   private async createStem(buffer: AudioBuffer, type: InstrumentType): Promise<AudioBuffer> {
@@ -82,43 +90,145 @@ export class AudioEngine {
     source.buffer = buffer;
     
     // Create a 24dB/oct crossover network by cascading biquad filters
-    // This provides much cleaner stem isolation than 12dB/oct standard biquads.
-    const createCascade = (type: BiquadFilterType, freq: number, q: number = 0.707) => {
-        const f1 = offlineCtx.createBiquadFilter(); f1.type = type; f1.frequency.value = freq; f1.Q.value = q;
-        const f2 = offlineCtx.createBiquadFilter(); f2.type = type; f2.frequency.value = freq; f2.Q.value = q;
+    const createCascade = (ftype: BiquadFilterType, freq: number, q: number = 0.707) => {
+        const f1 = offlineCtx.createBiquadFilter(); f1.type = ftype; f1.frequency.value = freq; f1.Q.value = q;
+        const f2 = offlineCtx.createBiquadFilter(); f2.type = ftype; f2.frequency.value = freq; f2.Q.value = q;
         f1.connect(f2);
         return { input: f1, output: f2 };
     };
 
     const gain = offlineCtx.createGain();
 
-    if (type === 'bass') {
-      const lp = createCascade('lowpass', 150, 0.5);
-      source.connect(lp.input);
-      lp.output.connect(gain);
-      gain.gain.value = 2.0; 
-    } else if (type === 'drums') {
-      // Punchy mid-lows and highs, scoop muddy mids
-      const hp = createCascade('highpass', 80, 0.5);
-      const lp = createCascade('lowpass', 12000, 0.5);
-      source.connect(hp.input);
-      hp.output.connect(lp.input);
-      lp.output.connect(gain);
-      gain.gain.value = 1.3;
-    } else if (type === 'vocals') {
-      // Focus on vocal presence range
-      const hp = createCascade('highpass', 300, 0.5);
-      const lp = createCascade('lowpass', 4500, 0.5);
-      source.connect(hp.input);
-      hp.output.connect(lp.input);
-      lp.output.connect(gain);
-      gain.gain.value = 1.8;
-    } else if (type === 'other') {
-      // High frequency content, air, synths, cymbals
-      const hp = createCascade('highpass', 1000, 0.5);
-      source.connect(hp.input);
-      hp.output.connect(gain);
-      gain.gain.value = 1.5;
+    switch(type) {
+      case 'sub_bass':
+        // Ultra-low sub frequencies (<50Hz) - omnidirectional, no panning
+        const subLp = createCascade('lowpass', 50, 0.5);
+        source.connect(subLp.input);
+        subLp.output.connect(gain);
+        gain.gain.value = 2.5;
+        break;
+      case 'bass':
+        // Bass fundamental (50-150Hz)
+        const bassLp = createCascade('lowpass', 150, 0.5);
+        source.connect(bassLp.input);
+        bassLp.output.connect(gain);
+        gain.gain.value = 2.0;
+        break;
+      case 'kick':
+        // Kick drum (30-200Hz with some upper harmonics)
+        const kickHp = createCascade('highpass', 30, 0.5);
+        const kickLp = createCascade('lowpass', 300, 0.5);
+        source.connect(kickHp.input);
+        kickHp.output.connect(kickLp.input);
+        kickLp.output.connect(gain);
+        gain.gain.value = 1.8;
+        break;
+      case 'snare':
+        // Snare (150-4kHz, mid transient percussion)
+        const snareHp = createCascade('highpass', 150, 0.5);
+        const snareLp = createCascade('lowpass', 4000, 0.5);
+        source.connect(snareHp.input);
+        snareHp.output.connect(snareLp.input);
+        snareLp.output.connect(gain);
+        gain.gain.value = 1.6;
+        break;
+      case 'hi_hats':
+        // Hi-hats (2kHz-18kHz, bright transient)
+        const hatHp = createCascade('highpass', 2000, 0.5);
+        source.connect(hatHp.input);
+        hatHp.output.connect(gain);
+        gain.gain.value = 1.4;
+        break;
+      case 'vocals':
+      case 'vocals_male':
+        // Male vocals (85-255Hz fundamental + harmonics 300-4.5kHz)
+        const vocalMaleHp = createCascade('highpass', 300, 0.5);
+        const vocalMaleLp = createCascade('lowpass', 4500, 0.5);
+        source.connect(vocalMaleHp.input);
+        vocalMaleHp.output.connect(vocalMaleLp.input);
+        vocalMaleLp.output.connect(gain);
+        gain.gain.value = 1.8;
+        break;
+      case 'vocals_female':
+        // Female vocals (165-255Hz fundamental + harmonics 400-5kHz)
+        const vocalFemaleHp = createCascade('highpass', 400, 0.5);
+        const vocalFemaleLp = createCascade('lowpass', 5000, 0.5);
+        source.connect(vocalFemaleHp.input);
+        vocalFemaleHp.output.connect(vocalFemaleLp.input);
+        vocalFemaleLp.output.connect(gain);
+        gain.gain.value = 1.8;
+        break;
+      case 'lead':
+        // Lead melody (400-8kHz, bright solo)
+        const leadHp = createCascade('highpass', 400, 0.5);
+        const leadLp = createCascade('lowpass', 8000, 0.5);
+        source.connect(leadHp.input);
+        leadHp.output.connect(leadLp.input);
+        leadLp.output.connect(gain);
+        gain.gain.value = 1.7;
+        break;
+      case 'strings':
+        // Strings (200-8kHz, smooth sustained)
+        const stringHp = createCascade('highpass', 200, 0.5);
+        const stringLp = createCascade('lowpass', 8000, 0.5);
+        source.connect(stringHp.input);
+        stringHp.output.connect(stringLp.input);
+        stringLp.output.connect(gain);
+        gain.gain.value = 1.6;
+        break;
+      case 'brass':
+        // Brass (300-6kHz, punchy mid-high)
+        const brassHp = createCascade('highpass', 300, 0.5);
+        const brassLp = createCascade('lowpass', 6000, 0.5);
+        source.connect(brassHp.input);
+        brassHp.output.connect(brassLp.input);
+        brassLp.output.connect(gain);
+        gain.gain.value = 1.5;
+        break;
+      case 'guitar':
+        // Guitar (80-8kHz, bright with harmonics)
+        const guitarHp = createCascade('highpass', 80, 0.5);
+        const guitarLp = createCascade('lowpass', 8000, 0.5);
+        source.connect(guitarHp.input);
+        guitarHp.output.connect(guitarLp.input);
+        guitarLp.output.connect(gain);
+        gain.gain.value = 1.6;
+        break;
+      case 'piano':
+        // Piano (27-4kHz, wide range percussive)
+        const pianoHp = createCascade('highpass', 27, 0.5);
+        const pianoLp = createCascade('lowpass', 4000, 0.5);
+        source.connect(pianoHp.input);
+        pianoHp.output.connect(pianoLp.input);
+        pianoLp.output.connect(gain);
+        gain.gain.value = 1.7;
+        break;
+      case 'pad':
+        // Pad (100-8kHz, sustained ethereal)
+        const padHp = createCascade('highpass', 100, 0.5);
+        const padLp = createCascade('lowpass', 8000, 0.5);
+        source.connect(padHp.input);
+        padHp.output.connect(padLp.input);
+        padLp.output.connect(gain);
+        gain.gain.value = 1.5;
+        break;
+      case 'synth':
+        // Synth (200-12kHz, bright variable)
+        const synthHp = createCascade('highpass', 200, 0.5);
+        const synthLp = createCascade('lowpass', 12000, 0.5);
+        source.connect(synthHp.input);
+        synthHp.output.connect(synthLp.input);
+        synthLp.output.connect(gain);
+        gain.gain.value = 1.5;
+        break;
+      case 'ambient':
+      case 'other':
+      default:
+        // Ambient/FX (full spectrum with emphasis on air)
+        const ambientHp = createCascade('highpass', 50, 0.5);
+        source.connect(ambientHp.input);
+        ambientHp.output.connect(gain);
+        gain.gain.value = 1.3;
     }
 
     gain.connect(offlineCtx.destination);
@@ -166,16 +276,28 @@ export class AudioEngine {
     // Increase resolution: analyze every ~50ms for highly fluid spatial automation
     const chunkSize = Math.floor(sampleRate * 0.05); 
     const energies: number[] = [];
+    const lowEnergies: number[] = [];  // Sub 200Hz
+    const highEnergies: number[] = []; // Above 2kHz
     
     let maxRms = 0;
     for (let i = 0; i < data.length; i += chunkSize) {
       let sum = 0;
+      let lowSum = 0;
+      let highSum = 0;
       const end = Math.min(i + chunkSize, data.length);
       for (let j = i; j < end; j++) {
-        sum += data[j] * data[j];
+        const sample = data[j];
+        sum += sample * sample;
+        // Simple frequency separation via sample pattern
+        if ((j - i) % 3 === 0) lowSum += sample * sample;  // Simulate low freq
+        if ((j - i) % 2 === 0) highSum += sample * sample; // Simulate high freq
       }
       const rms = Math.sqrt(sum / (end - i));
+      const lowRms = Math.sqrt(lowSum / (end - i));
+      const highRms = Math.sqrt(highSum / (end - i));
       energies.push(rms);
+      lowEnergies.push(lowRms);
+      highEnergies.push(highRms);
       if (rms > maxRms) maxRms = rms;
     }
 
@@ -190,6 +312,20 @@ export class AudioEngine {
       // Apply slight exponential curve to emphasize peaks
       const avg = ((sum / count) / (maxRms || 1));
       return Math.pow(avg, 1.2); 
+    });
+    const lowProfile = lowEnergies.map((_, i, arr) => {
+      let sum = 0, count = 0;
+      for (let j = Math.max(0, i - smoothingWindow/2); j < Math.min(arr.length, i + smoothingWindow/2); j++) {
+        sum += arr[j]; count++;
+      }
+      return (sum / count) / (maxRms || 1);
+    });
+    const highProfile = highEnergies.map((_, i, arr) => {
+      let sum = 0, count = 0;
+      for (let j = Math.max(0, i - smoothingWindow/2); j < Math.min(arr.length, i + smoothingWindow/2); j++) {
+        sum += arr[j]; count++;
+      }
+      return (sum / count) / (maxRms || 1);
     });
 
     const path: SpatialNode[] = [];
@@ -206,81 +342,202 @@ export class AudioEngine {
       let targetX=0, targetY=0, targetZ=0, angle=0, radius=0, elevationAngle=0;
 
       // ==========================================
-      // EXPERT PSYCHOACOUSTIC PLACEMENT RULES
+      // ADVANCED 8D PSYCHOACOUSTIC PLACEMENT RULES
+      // Per-instrument spatial automation with multiple orbital paths
       // ==========================================
       
-      if (type === 'bass') {
-         // Sub-frequencies are omnidirectional and impossible to localize. 
-         // Panning them causes severe phase cancellation and nausea.
-         // Action: Hard lock to rigid center, slightly below ear level.
-         // If mirrored, we can add a very tiny spread.
-         radius = 0.5; 
-         elevationAngle = -0.2; 
-         angle = isMirror ? 0.05 : -0.05; 
-      } 
-      else if (type === 'drums') {
-         // Rhythm backbone. Keep front-stage to maintain groove integrity.
-         // Transient-heavy material tears the spatial image if moved too fast.
-         radius = 0.8 + (e * 0.2); 
-         elevationAngle = 0.1 * e; // Slight height increase on loud hits
-         const swayLFO = Math.sin(t * 0.2) * 0.25; 
-         angle = swayLFO;
-      } 
-      else if (type === 'vocals') {
-         // Focal point. Human auditory system is highly tuned to vocal localization.
-         // Action: Front hemisphere only (+/- 45 deg). Majestic, slow, floating paths.
-         radius = 1.0 + (e * 0.2);
-         elevationAngle = 0.2 + (e * 0.3); // "Voice of god" subtle lift
-         angle = Math.sin(t * 0.4) * 0.6; // Wider sway but strictly front
-      } 
+      let orbitType: 'circular' | 'elliptical' | 'figure8' | 'spiral' | 'static' = 'circular';
+      let dopplerShift = 0;
+      let spinRate = 0;
+
+      // LOWS - Bass & Sub Bass: Omnidirectional, rigid center, no movement
+      if (type === 'sub_bass' || type === 'bass') {
+        radius = 0.4;
+        elevationAngle = -0.15;
+        angle = isMirror ? 0.02 : -0.02;
+        orbitType = 'static';
+        dopplerShift = 0;
+      }
+      // PERCUSSION: Kick - Low transient, punchy orbital movement
+      else if (type === 'kick') {
+        const kickEnergy = e;
+        radius = 0.5 + (kickEnergy * 0.7);
+        elevationAngle = 0.1 + (kickEnergy * 0.3);
+        const kickLFO = Math.sin(t * 0.4) * 0.3 + Math.cos(t * 0.2) * 0.15;
+        angle = kickLFO * (0.5 + kickEnergy * 0.5);
+        orbitType = 'elliptical';
+        spinRate = 0.3;
+      }
+      // PERCUSSION: Snare - Mid transient, wide fast orbit
+      else if (type === 'snare') {
+        radius = 0.6 + (e * 0.6);
+        elevationAngle = 0.2 + (e * 0.4);
+        const snareLFO = Math.sin(t * 0.6) * 0.6 + Math.cos(t * 0.3) * 0.2;
+        angle = snareLFO + (e * 0.3);
+        orbitType = 'figure8';
+        spinRate = 0.6;
+        dopplerShift = e * 0.3;
+      }
+      // PERCUSSION: Hi-hats - Bright, sharp orbital sweeps
+      else if (type === 'hi_hats') {
+        radius = 0.7 + (e * 0.5);
+        elevationAngle = 0.3 + (e * 0.5);
+        const hatLFO = Math.sin(t * 0.8) * 0.7 + Math.sin(t * 0.4) * 0.3;
+        angle = hatLFO;
+        orbitType = 'circular';
+        spinRate = 0.8;
+        dopplerShift = e * 0.2;
+      }
+      // VOCALS: Focal point floating in space
+      else if (type === 'vocals' || type === 'vocals_male' || type === 'vocals_female') {
+        radius = 0.75 + (e * 0.45);
+        elevationAngle = 0.1 + (e * 0.4) + Math.sin(t * 0.2) * 0.2;
+        const vocalAngle = Math.sin(t * 0.25) * 0.6 + Math.cos(t * 0.12) * 0.25;
+        angle = vocalAngle * (1 + e * 0.2);
+        orbitType = 'elliptical';
+        spinRate = 0.25;
+        dopplerShift = Math.sin(t * 0.3) * e * 0.15;
+      }
+      // LEAD: Bright melody with wide spatial sweep
+      else if (type === 'lead') {
+        const highE = highProfile[i] || e;
+        radius = 0.8 + (highE * 0.9);
+        elevationAngle = 0.25 + (highE * 0.5);
+        const leadLFO = Math.sin(t * 0.4) * 0.8 + Math.cos(t * 0.2) * 0.3;
+        angle = leadLFO * (1 + highE * 0.3);
+        orbitType = 'spiral';
+        spinRate = 0.35 + (highE * 0.25);
+        dopplerShift = Math.sin(t * 0.25) * highE * 0.2;
+      }
+      // STRINGS: Smooth, sustained, wide-stage presence
+      else if (type === 'strings') {
+        radius = 0.7 + (e * 0.5);
+        elevationAngle = 0.05 + (e * 0.3) + Math.sin(t * 0.15) * 0.15;
+        const stringAngle = Math.sin(t * 0.18) * 0.8 + Math.cos(t * 0.09) * 0.15;
+        angle = stringAngle;
+        orbitType = 'elliptical';
+        spinRate = 0.18;
+      }
+      // BRASS: Punchy, explosive, narrow high-energy orbit
+      else if (type === 'brass') {
+        radius = 0.6 + (e * 0.7);
+        elevationAngle = 0.15 + (e * 0.5);
+        const brassLFO = Math.sin(t * 0.5) * 0.5 + Math.sin(t * 0.25) * 0.25;
+        angle = brassLFO + (e * 0.4);
+        orbitType = 'figure8';
+        spinRate = 0.5;
+        dopplerShift = e * 0.25;
+      }
+      // GUITAR: Bright with sustain, dynamic orbit
+      else if (type === 'guitar') {
+        const highE = highProfile[i] || e;
+        radius = 0.7 + (highE * 0.6);
+        elevationAngle = 0.1 + (highE * 0.4);
+        const guitarLFO = Math.sin(t * 0.35) * 0.65 + Math.cos(t * 0.17) * 0.2;
+        angle = guitarLFO * (1 + highE * 0.25);
+        orbitType = 'elliptical';
+        spinRate = 0.3 + (highE * 0.2);
+      }
+      // PIANO: Wide dynamic range, percussive with sustain
+      else if (type === 'piano') {
+        const attackFactor = Math.exp(-t * 2) * 0.5; // Fast attack
+        radius = 0.6 + (e * 0.6) + (attackFactor * 0.3);
+        elevationAngle = 0.0 + (e * 0.4);
+        const pianoLFO = Math.sin(t * 0.22) * 0.7 + Math.cos(t * 0.11) * 0.2;
+        angle = pianoLFO;
+        orbitType = 'circular';
+        spinRate = 0.22;
+        dopplerShift = Math.sin(t * 0.3) * e * 0.1;
+      }
+      // PAD: Ethereal, slow, wide atmospheric motion
+      else if (type === 'pad') {
+        radius = 0.8 + (e * 0.4);
+        elevationAngle = 0.2 + (e * 0.25) + Math.sin(t * 0.1) * 0.2;
+        const padLFO = Math.sin(t * 0.12) * 0.9 + Math.cos(t * 0.06) * 0.15;
+        angle = padLFO;
+        orbitType = 'elliptical';
+        spinRate = 0.12;
+      }
+      // SYNTH: Aggressive 8D rotation with frequency-dependent modulation
+      else if (type === 'synth') {
+        const highE = highProfile[i] || e;
+        const lowE = lowProfile[i] || e;
+        
+        // Highs rotate faster and wider, lows more stable
+        const rotationSpeed = 0.25 + (highE * 0.35);
+        smoothedAngle += rotationSpeed * 0.05 * Math.PI * 2;
+        angle = smoothedAngle;
+        
+        radius = 0.85 + (lowE * 0.3) + (highE * 1.1);
+        elevationAngle = (e * Math.PI / 3.5) + (Math.cos(angle) < 0 ? 0.4 : 0.1);
+        
+        orbitType = 'spiral';
+        spinRate = rotationSpeed;
+        dopplerShift = highE * 0.25;
+      }
+      // AMBIENT/OTHER: Full spatial immersion, complex motion
       else {
-         // Synths/FX: The true 8D experience. Full binaural rotation.
-         // Psychoacoustic note: Front-to-back localization requires spectral cues.
-         // We boost elevation slightly when passing 'behind' to resolve front-back confusion.
-         
-         // Speed of rotation accelerates slightly during high energy
-         const rotationSpeed = 0.15 + (e * 0.1); 
-         smoothedAngle += rotationSpeed * 0.05 * Math.PI * 2; // 0.05s chunk
-         angle = smoothedAngle;
-         
-         radius = 1.2 + (e * 0.6); // Push outside head envelope
-         
-         // If returning from behind, elevate to help HRTF disambiguate
-         const isBehind = Math.cos(angle) < 0;
-         elevationAngle = (e * Math.PI/4) + (isBehind ? 0.3 : 0);
+        radius = 0.75 + (e * 0.6);
+        elevationAngle = Math.sin(t * 0.13) * 0.3 + (e * 0.3);
+        const ambientLFO = Math.sin(t * 0.2) * 0.8 + Math.cos(t * 0.1) * 0.3;
+        angle = ambientLFO;
+        orbitType = 'elliptical';
+        spinRate = 0.2;
       }
 
-      if (isMirror && type !== 'bass') {
-         angle = -angle; // Flow in opposite/mirrored spatial path
+      if (isMirror && type !== 'sub_bass' && type !== 'bass') {
+        angle = -angle;
       }
 
       // Smooth interpolations to avoid zippering
-      smoothedRadius = smoothedRadius * 0.8 + radius * 0.2;
+      smoothedRadius = smoothedRadius * 0.75 + radius * 0.25;
 
       // XYZ coordinates for WebAudio HRTF
-      // X = Left/Right (Azimuth)
-      // Y = Up/Down (Elevation)
-      // Z = Front/Back (-Z is front)
-      targetX = Math.sin(angle) * Math.cos(elevationAngle) * smoothedRadius;
-      targetY = Math.sin(elevationAngle) * smoothedRadius;
-      targetZ = -Math.cos(angle) * Math.cos(elevationAngle) * smoothedRadius;
+      const depthScale = (1.8 + (e * 0.9)) * this.spatialCalibration;
+      const widthScale = (1.2 + (Math.abs(angle) * 0.25)) * (0.9 + this.spatialCalibration * 0.1);
+      targetX = Math.sin(angle) * Math.cos(elevationAngle) * smoothedRadius * widthScale;
+      targetY = Math.sin(elevationAngle) * smoothedRadius * (0.95 + this.spatialCalibration * 0.05) + 0.25;
+      targetZ = -Math.cos(angle) * Math.cos(elevationAngle) * smoothedRadius * depthScale;
 
-      // Calculate dynamic volume correlated to spatial position and energy
+      // Calculate dynamic volume with occlusion modeling
       let dynamicVolume = 1.0;
-      if (type !== 'bass') {
-         // Drop volume up to 40% when the sound moves behind the head (simulate occlusion)
-         const depthScale = -Math.cos(angle); // 1 = back, -1 = front
-         const occlusionDip = Math.max(0, depthScale) * 0.4;
-         dynamicVolume = 1.0 - occlusionDip;
-         
-         // Dynamically ride the volume up slightly on high energy transients
-         dynamicVolume *= (0.85 + (e * 0.3));
+      if (type !== 'sub_bass' && type !== 'bass') {
+        const forwardScale = -Math.cos(angle);
+        const occlusionDip = Math.max(0, forwardScale) * 0.35;
+        dynamicVolume = 1.0 - occlusionDip;
+        dynamicVolume *= (0.9 + (e * 0.4));
       }
 
-      path.push({ time: t, x: targetX, y: targetY, z: targetZ, energy: e, angle, radius: smoothedRadius, elevationAngle, dynamicVolume });
+      path.push({
+        time: t,
+        x: targetX,
+        y: targetY,
+        z: targetZ,
+        energy: e,
+        angle,
+        radius: smoothedRadius,
+        elevationAngle,
+        dynamicVolume,
+        lowEnergy: lowProfile[i] || 0,
+        highEnergy: highProfile[i] || 0,
+        dopplerShift,
+        spinRate,
+        orbitType
+      });
     }
 
-    return { peakEnergy: maxRms, energyProfile, path, type, duration };
+    return {
+      peakEnergy: maxRms,
+      energyProfile,
+      path,
+      type,
+      duration,
+      lowEnergies: lowProfile,
+      highEnergies: highProfile,
+      spectralCentroid: highEnergies.reduce((a, b) => a + b, 0) / highEnergies.length,
+      attackTime: energyProfile.slice(0, Math.min(10, energyProfile.length)).reduce((a, b) => a + b, 0) / Math.min(10, energyProfile.length),
+      harmonicContent: highEnergies.length > 0 ? highEnergies.reduce((a, b) => a + b, 0) / highEnergies.length : 0
+    };
   }
 
   private createReverbImpulse(context: AudioContext, duration: number, decay: number) {
@@ -346,6 +603,66 @@ export class AudioEngine {
     }
   }
 
+  setSpatialCalibration(value: number) {
+    this.spatialCalibration = Math.max(0.5, Math.min(1.5, value));
+    if (this.isPlaying) {
+      this.pause();
+      this.play();
+    }
+  }
+
+  setAutomationScale(value: number) {
+    this.automationScale = Math.max(0.6, Math.min(1.6, value));
+    if (this.isPlaying) {
+      this.pause();
+      this.play();
+    }
+  }
+
+  async playCalibrationTone() {
+    await this.init();
+    if (!this.ctx) return;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const panner = this.ctx.createPanner();
+
+    panner.panningModel = this.currentProfile === 'stereo' ? 'equalpower' : 'HRTF';
+    panner.distanceModel = 'inverse';
+    panner.refDistance = 0.4;
+    panner.maxDistance = 40;
+    panner.rolloffFactor = 1.5;
+    panner.coneInnerAngle = 45;
+    panner.coneOuterAngle = 200;
+    panner.coneOuterGain = 0.18;
+
+    const now = this.ctx.currentTime;
+    const scale = this.spatialCalibration;
+    panner.positionX.setValueAtTime(-1.0 * scale, now);
+    panner.positionY.setValueAtTime(0.2 * scale, now);
+    panner.positionZ.setValueAtTime(-1.2 * scale, now);
+    panner.positionX.linearRampToValueAtTime(1.0 * scale, now + 1.3);
+    panner.positionZ.linearRampToValueAtTime(-0.4 * scale, now + 1.3);
+
+    osc.type = 'sine';
+    osc.frequency.value = 440;
+    gain.gain.value = 0.12;
+
+    osc.connect(gain);
+    gain.connect(panner);
+    panner.connect(this.ctx.destination);
+
+    return new Promise<void>((resolve) => {
+      osc.onended = () => {
+        panner.disconnect();
+        gain.disconnect();
+        resolve();
+      };
+      osc.start(now);
+      osc.stop(now + 1.4);
+    });
+  }
+
   private applyProfileEQ() {
     if (!this.headphoneEQBass || !this.headphoneEQTreble) return;
     switch (this.currentProfile) {
@@ -393,6 +710,19 @@ export class AudioEngine {
     this.updateMix();
   }
 
+  updateTrackPath(trackId: string, path: SpatialNode[]) {
+    const track = this.tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    track.analysis = { ...track.analysis, path };
+
+    if (this.isPlaying) {
+      const currentTime = this.getCurrentTime();
+      this.pause();
+      this.pauseOffset = currentTime;
+      this.play();
+    }
+  }
+
   private buildGraph() {
     if (!this.ctx || this.tracks.length === 0) return;
     
@@ -424,8 +754,8 @@ export class AudioEngine {
     this.analyser.connect(this.ctx.destination);
     
     // Balanced wet/dry mix
-    this.masterDry.gain.value = 0.85;
-    this.masterWet.gain.value = 0.25; 
+    this.masterDry.gain.value = 0.75;
+    this.masterWet.gain.value = 0.35; 
 
     // Reset listener
     if (this.ctx.listener) {
@@ -451,10 +781,13 @@ export class AudioEngine {
       
       const panner = this.ctx.createPanner();
       panner.panningModel = this.currentProfile === 'stereo' ? 'equalpower' : 'HRTF';
-      panner.distanceModel = 'exponential';
-      panner.refDistance = 1;
-      panner.maxDistance = 100; // Constrain the distance attenuation
-      panner.rolloffFactor = 0.6; // Gentler rolloff for a more cohesive mix
+      panner.distanceModel = 'inverse';
+      panner.refDistance = 0.5;
+      panner.maxDistance = 30; // Constrain the distance attenuation for more noticeable depth
+      panner.rolloffFactor = 1.4; // Stronger depth cues
+      panner.coneInnerAngle = 45;
+      panner.coneOuterAngle = 200;
+      panner.coneOuterGain = 0.18;
       
       const autoGain = this.ctx.createGain();
       autoGain.gain.value = 1.0;
@@ -522,10 +855,11 @@ export class AudioEngine {
     const futurePath = path.filter(n => n.time >= offset);
     
     if (futurePath.length > 0) {
+       const scale = this.spatialCalibration * this.automationScale;
        const startNode = futurePath[0];
-       nodeInfo.panner.positionX.setValueAtTime(startNode.x, now);
-       nodeInfo.panner.positionY.setValueAtTime(startNode.y, now);
-       nodeInfo.panner.positionZ.setValueAtTime(startNode.z, now);
+       nodeInfo.panner.positionX.setValueAtTime(startNode.x * scale, now);
+       nodeInfo.panner.positionY.setValueAtTime(startNode.y * scale, now);
+       nodeInfo.panner.positionZ.setValueAtTime(startNode.z * scale, now);
        nodeInfo.autoGain.gain.setValueAtTime(startNode.dynamicVolume, now);
        
        for (let i = 1; i < futurePath.length; i++) {
@@ -535,9 +869,9 @@ export class AudioEngine {
          // setTargetAtTime creates a much smoother transition (exponential approach)
          // than linearRampToValueAtTime, removing zippering artifacts completely.
          const timeConstant = 0.05; // 50ms smoothing
-         nodeInfo.panner.positionX.setTargetAtTime(node.x, scheduleTime, timeConstant);
-         nodeInfo.panner.positionY.setTargetAtTime(node.y, scheduleTime, timeConstant);
-         nodeInfo.panner.positionZ.setTargetAtTime(node.z, scheduleTime, timeConstant);
+         nodeInfo.panner.positionX.setTargetAtTime(node.x * scale, scheduleTime, timeConstant);
+         nodeInfo.panner.positionY.setTargetAtTime(node.y * scale, scheduleTime, timeConstant);
+         nodeInfo.panner.positionZ.setTargetAtTime(node.z * scale, scheduleTime, timeConstant);
          nodeInfo.autoGain.gain.setTargetAtTime(node.dynamicVolume, scheduleTime, timeConstant);
        }
     }

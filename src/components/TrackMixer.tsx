@@ -11,19 +11,47 @@ interface TrackMixerProps {
   onReverbLevelChange: (level: number) => void;
   profile: HeadphoneProfile;
   onProfileChange: (p: HeadphoneProfile) => void;
+  spatialCalibration: number;
+  onSpatialCalibrationChange: (value: number) => void;
 }
 
 const colors: Record<string, string> = {
+  sub_bass: 'bg-red-900',
+  bass: 'bg-red-600',
+  kick: 'bg-red-500',
+  snare: 'bg-orange-500',
+  hi_hats: 'bg-yellow-500',
   vocals: 'bg-pink-500',
-  drums: 'bg-orange-400',
-  bass: 'bg-red-500',
+  vocals_male: 'bg-pink-600',
+  vocals_female: 'bg-pink-400',
+  lead: 'bg-purple-500',
+  strings: 'bg-cyan-500',
+  brass: 'bg-amber-600',
+  guitar: 'bg-green-500',
+  piano: 'bg-indigo-500',
+  pad: 'bg-blue-500',
+  synth: 'bg-violet-500',
+  ambient: 'bg-teal-500',
   other: 'bg-lime-400'
 };
 
 const hexColors: Record<string, string> = {
+  sub_bass: '#7f1d1d',
+  bass: '#dc2626',
+  kick: '#ef4444',
+  snare: '#f97316',
+  hi_hats: '#eab308',
   vocals: '#ec4899',
-  drums: '#fb923c',
-  bass: '#ef4444',
+  vocals_male: '#be185d',
+  vocals_female: '#f472b6',
+  lead: '#a855f7',
+  strings: '#06b6d4',
+  brass: '#b45309',
+  guitar: '#22c55e',
+  piano: '#6366f1',
+  pad: '#3b82f6',
+  synth: '#8b5cf6',
+  ambient: '#14b8a6',
   other: '#a3e635'
 };
 
@@ -114,6 +142,8 @@ function TrackVolumeMonitor({ track, currentTime, onVolumeChange }: { track: Tra
   
   const node = track.analysis.path.find(p => p.time >= currentTime) || track.analysis.path[track.analysis.path.length-1];
   const dynamicMultiplier = node ? node.dynamicVolume : 1.0;
+  const lowEnergy = node?.lowEnergy ?? 0;
+  const highEnergy = node?.highEnergy ?? 0;
   
   const visualVolume = Math.min(1.5, track.volume * dynamicMultiplier);
 
@@ -211,7 +241,7 @@ function TrackVolumeMonitor({ track, currentTime, onVolumeChange }: { track: Tra
   );
 }
 
-export function TrackMixer({ tracks, currentTime, onUpdateTrack, onRemoveTrack, reverbLevel, onReverbLevelChange, profile, onProfileChange }: TrackMixerProps) {
+export function TrackMixer({ tracks, currentTime, onUpdateTrack, onRemoveTrack, reverbLevel, onReverbLevelChange, profile, onProfileChange, spatialCalibration, onSpatialCalibrationChange }: TrackMixerProps) {
   if (tracks.length === 0) return null;
 
   return (
@@ -267,10 +297,36 @@ export function TrackMixer({ tracks, currentTime, onUpdateTrack, onRemoveTrack, 
                <option value="stereo">Standard Stereo (Speakers)</option>
              </select>
           </div>
-       </div>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-mono font-bold tracking-widest text-zinc-400 flex items-center gap-2">
+                <SlidersHorizontal size={14} className="text-cyan-400" />
+                3D CALIBRATION
+              </label>
+              <span className="text-xs font-mono text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded">
+                {(spatialCalibration * 100).toFixed(0)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.8"
+              max="1.4"
+              step="0.02"
+              value={spatialCalibration}
+              onChange={(e) => onSpatialCalibrationChange(parseFloat(e.target.value))}
+              className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+            />
+            <p className="mt-2 text-[11px] text-zinc-500 font-mono">Adjust overall 8D depth and separation for your headphones or room.</p>
+          </div>
+        </div>
 
        <div className="p-4 space-y-4 overflow-y-auto max-h-[450px]">
-          {tracks.map(track => (
+          {tracks.map(track => {
+            const node = track.analysis.path.find(p => p.time >= currentTime) || track.analysis.path[track.analysis.path.length-1];
+            const lowEnergy = node?.lowEnergy ?? 0;
+            const highEnergy = node?.highEnergy ?? 0;
+            
+            return (
             <div key={track.id} className="bg-zinc-950/50 rounded-lg p-3 border border-zinc-800/50 space-y-3">
                
                <div className="flex items-center justify-between">
@@ -282,6 +338,42 @@ export function TrackMixer({ tracks, currentTime, onUpdateTrack, onRemoveTrack, 
                    <Trash2 size={14} />
                  </button>
                </div>
+               
+               <select 
+                 value={track.type} 
+                 onChange={(e) => onUpdateTrack(track.id, { type: e.target.value as any })}
+                 className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs rounded px-2 py-1 focus:outline-none focus:border-purple-500"
+               >
+                 <optgroup label="Bass">
+                   <option value="sub_bass">Sub Bass (&lt;50Hz)</option>
+                   <option value="bass">Bass (50-150Hz)</option>
+                   <option value="kick">Kick (Transient)</option>
+                 </optgroup>
+                 <optgroup label="Percussion">
+                   <option value="snare">Snare (Transient)</option>
+                   <option value="hi_hats">Hi-Hats (Bright)</option>
+                 </optgroup>
+                 <optgroup label="Vocals">
+                   <option value="vocals">Vocals (Generic)</option>
+                   <option value="vocals_male">Vocals Male</option>
+                   <option value="vocals_female">Vocals Female</option>
+                 </optgroup>
+                 <optgroup label="Melody & Strings">
+                   <option value="lead">Lead Melody</option>
+                   <option value="strings">Strings</option>
+                   <option value="guitar">Guitar</option>
+                   <option value="brass">Brass</option>
+                 </optgroup>
+                 <optgroup label="Keys & Synths">
+                   <option value="piano">Piano</option>
+                   <option value="pad">Pad</option>
+                   <option value="synth">Synth</option>
+                 </optgroup>
+                 <optgroup label="Texture">
+                   <option value="ambient">Ambient / FX</option>
+                   <option value="other">Other</option>
+                 </optgroup>
+               </select>
                
                <div className="flex items-center gap-3">
                   <TrackMiniRadar track={track} currentTime={currentTime} />
@@ -308,12 +400,15 @@ export function TrackMixer({ tracks, currentTime, onUpdateTrack, onRemoveTrack, 
                
                <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 uppercase tracking-widest pt-1 border-t border-zinc-800/50">
                   <span>{track.type} Path</span>
-                  <span className={track.type === 'bass' ? 'text-zinc-600' : 'text-lime-500/70'}>
-                    {track.type === 'bass' ? 'Static (0.2r)' : 'Dynamic 3D'}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-blue-400/70">{(lowEnergy * 100).toFixed(0)}%</span>
+                    <span className="text-zinc-600">/</span>
+                    <span className="text-amber-400/70">{(highEnergy * 100).toFixed(0)}%</span>
+                  </div>
                </div>
             </div>
-          ))}
+            );
+          })}
        </div>
     </div>
   );

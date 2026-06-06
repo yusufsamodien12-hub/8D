@@ -28,7 +28,7 @@ export function SpectrumVisualizer({ isPlaying }: SpectrumVisualizerProps) {
            if (width > 0 && height > 0) {
                canvas.width = width * dpr;
                canvas.height = height * dpr;
-               ctx.scale(dpr, dpr);
+               ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                currentW = width;
                currentH = height;
            }
@@ -48,13 +48,13 @@ export function SpectrumVisualizer({ isPlaying }: SpectrumVisualizerProps) {
       
       audioEngine.getFrequencyData(dataArray.current);
       
-      const bars = 64; // only taking lower 64 bins makes it look better
-      const barWidth = (W / bars);
+      const bars = Math.min(64, dataArray.current.length);
+      const barWidth = W / bars;
       let barHeight;
       let x = 0;
 
       for (let i = 0; i < bars; i++) {
-        const val = dataArray.current[i];
+        const val = dataArray.current[i] ?? 0;
         barHeight = (val / 255) * H;
         
         // Color mapping from lime to yellow to red
@@ -65,7 +65,6 @@ export function SpectrumVisualizer({ isPlaying }: SpectrumVisualizerProps) {
         grad.addColorStop(1, `hsla(${hue}, 80%, 65%, 1)`);
 
         ctx.fillStyle = grad;
-        // Draw with slight spacing gap
         ctx.fillRect(x, H - barHeight, Math.max(1, barWidth - 1), barHeight);
 
         x += barWidth;
