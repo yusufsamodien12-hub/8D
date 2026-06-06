@@ -1,13 +1,16 @@
-import { Track, SpatialNode, InstrumentType, TrackAnalysis } from '../types';
+import { Track, SpatialNode, InstrumentType, TrackAnalysis, HeadphoneProfile } from '../types';
 
 export class AudioEngine {
   public ctx: AudioContext | null = null;
   public tracks: Track[] = [];
+  public currentProfile: HeadphoneProfile = 'flat';
   
-  private nodes: Map<string, { source: AudioBufferSourceNode, panner: PannerNode, gain: GainNode }> = new Map();
+  private nodes: Map<string, { source: AudioBufferSourceNode, panner: PannerNode, gain: GainNode, autoGain: GainNode }> = new Map();
   
   private masterDry: GainNode | null = null;
   private masterWet: GainNode | null = null;
+  private headphoneEQBass: BiquadFilterNode | null = null;
+  private headphoneEQTreble: BiquadFilterNode | null = null;
   private convolver: ConvolverNode | null = null;
   public analyser: AnalyserNode | null = null;
 
@@ -37,24 +40,38 @@ export class AudioEngine {
     const originalBuffer = await this.ctx.decodeAudioData(arrayBuffer);
     
     const types: InstrumentType[] = ['bass', 'drums', 'vocals', 'other'];
-    const newTracks: Track[] = [];
 
     const promises = types.map(async (type) => {
        const separatedBuffer = await this.createStem(originalBuffer, type);
-       const analysis = this.analyzeBuffer(separatedBuffer, type);
-       return {
-         id: crypto.randomUUID(),
-         name: `${file.name.replace(/\.[^/.]+$/, "")} [${type.toUpperCase()}]`,
-         buffer: separatedBuffer,
-         type,
-         analysis,
-         isMuted: false,
-         isSoloed: false,
-         volume: 1.0
-       } as Track;
+       const analysisMain = this.analyzeBuffer(separatedBuffer, type, false);
+       const analysisMirror = this.analyzeBuffer(separatedBuffer, type, true);
+       
+       return [
+         {
+           id: crypto.randomUUID(),
+           name: `${file.name.replace(/\.[^/.]+$/, "")} [${type.toUpperCase()} L]`,
+           buffer: separatedBuffer,
+           type,
+           analysis: analysisMain,
+           isMuted: false,
+           isSoloed: false,
+           volume: 0.7
+         } as Track,
+         {
+           id: crypto.randomUUID(),
+           name: `${file.name.replace(/\.[^/.]+$/, "")} [${type.toUpperCase()} R]`,
+           buffer: separatedBuffer,
+           type,
+           analysis: analysisMirror,
+           isMuted: false,
+           isSoloed: false,
+           volume: 0.7
+         } as Track
+       ];
     });
 
-    const results = await Promise.all(promises);
+    const resultsArray = await Promise.all(promises);
+    const results = resultsArray.flat();
     this.tracks.push(...results);
     return results;
   }
@@ -123,7 +140,7 @@ export class AudioEngine {
     return Math.max(...this.tracks.map(t => t.analysis.duration));
   }
 
-  private analyzeBuffer(buffer: AudioBuffer, type: InstrumentType): TrackAnalysis {
+  private analyzeBuffer(buffer: AudioBuffer, type: InstrumentType, isMirror: boolean = false): TrackAnalysis {
     const data = buffer.getChannelData(0);
     const sampleRate = buffer.sampleRate;
     // Increase resolution: analyze every ~50ms for highly fluid spatial automation
@@ -176,9 +193,10 @@ export class AudioEngine {
          // Sub-frequencies are omnidirectional and impossible to localize. 
          // Panning them causes severe phase cancellation and nausea.
          // Action: Hard lock to rigid center, slightly below ear level.
+         // If mirrored, we can add a very tiny spread.
          radius = 0.5; 
          elevationAngle = -0.2; 
-         angle = 0; 
+         angle = isMirror ? 0.05 : -0.05; 
       } 
       else if (type === 'drums') {
          // Rhythm backbone. Keep front-stage to maintain groove integrity.
@@ -212,6 +230,10 @@ export class AudioEngine {
          elevationAngle = (e * Math.PI/4) + (isBehind ? 0.3 : 0);
       }
 
+      if (isMirror && type !== 'bass') {
+         angle = -angle; // Flow in opposite/mirrored spatial path
+      }
+
       // Smooth interpolations to avoid zippering
       smoothedRadius = smoothedRadius * 0.8 + radius * 0.2;
 
@@ -223,7 +245,19 @@ export class AudioEngine {
       targetY = Math.sin(elevationAngle) * smoothedRadius;
       targetZ = -Math.cos(angle) * Math.cos(elevationAngle) * smoothedRadius;
 
-      path.push({ time: t, x: targetX, y: targetY, z: targetZ, energy: e, angle, radius: smoothedRadius, elevationAngle });
+      // Calculate dynamic volume correlated to spatial position and energy
+      let dynamicVolume = 1.0;
+      if (type !== 'bass') {
+         // Drop volume up to 40% when the sound moves behind the head (simulate occlusion)
+         const depthScale = -Math.cos(angle); // 1 = back, -1 = front
+         const occlusionDip = Math.max(0, depthScale) * 0.4;
+         dynamicVolume = 1.0 - occlusionDip;
+         
+         // Dynamically ride the volume up slightly on high energy transients
+         dynamicVolume *= (0.85 + (e * 0.3));
+      }
+
+      path.push({ time: t, x: targetX, y: targetY, z: targetZ, energy: e, angle, radius: smoothedRadius, elevationAngle, dynamicVolume });
     }
 
     return { peakEnergy: maxRms, energyProfile, path, type, duration };
@@ -280,6 +314,38 @@ export class AudioEngine {
     return impulse;
   }
 
+  setProfile(profile: HeadphoneProfile) {
+    const changedModel = (this.currentProfile === 'stereo') !== (profile === 'stereo');
+    this.currentProfile = profile;
+    this.applyProfileEQ();
+    // If we changed from HRTF to stereo or vice versa, we must rebuild the graph
+    // because panner.panningModel applies at creation.
+    if (changedModel && this.isPlaying) {
+      this.pause();
+      this.play();
+    }
+  }
+
+  private applyProfileEQ() {
+    if (!this.headphoneEQBass || !this.headphoneEQTreble) return;
+    switch (this.currentProfile) {
+        case 'bass_boost':
+            this.headphoneEQBass.gain.value = 6;
+            this.headphoneEQTreble.gain.value = 0;
+            break;
+        case 'open_back':
+            this.headphoneEQBass.gain.value = -1; // Slight roll-off
+            this.headphoneEQTreble.gain.value = 4; // Airy highs
+            break;
+        case 'flat':
+        case 'stereo':
+        default:
+            this.headphoneEQBass.gain.value = 0;
+            this.headphoneEQTreble.gain.value = 0;
+            break;
+    }
+  }
+
   setReverbLevel(level: number) {
     if (this.masterWet) {
       this.masterWet.gain.setTargetAtTime(level, this.ctx?.currentTime || 0, 0.1);
@@ -315,12 +381,25 @@ export class AudioEngine {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 256;
     
+    this.headphoneEQBass = this.ctx.createBiquadFilter();
+    this.headphoneEQBass.type = 'lowshelf';
+    this.headphoneEQBass.frequency.value = 120;
+    
+    this.headphoneEQTreble = this.ctx.createBiquadFilter();
+    this.headphoneEQTreble.type = 'highshelf';
+    this.headphoneEQTreble.frequency.value = 8000;
+    
+    this.applyProfileEQ();
+    
     this.convolver = this.ctx.createConvolver();
     this.convolver.buffer = this.createReverbImpulse(this.ctx, 2.5, 4.0);
 
     // Wire master effects
-    this.masterDry.connect(this.analyser);
-    this.masterWet.connect(this.analyser);
+    this.masterDry.connect(this.headphoneEQBass);
+    this.masterWet.connect(this.headphoneEQBass);
+    this.headphoneEQBass.connect(this.headphoneEQTreble);
+    this.headphoneEQTreble.connect(this.analyser);
+    
     this.convolver.connect(this.masterWet);
     this.analyser.connect(this.ctx.destination);
     
@@ -351,11 +430,14 @@ export class AudioEngine {
       source.buffer = t.buffer;
       
       const panner = this.ctx.createPanner();
-      panner.panningModel = 'HRTF';
+      panner.panningModel = this.currentProfile === 'stereo' ? 'equalpower' : 'HRTF';
       panner.distanceModel = 'exponential';
       panner.refDistance = 1;
       panner.maxDistance = 100; // Constrain the distance attenuation
       panner.rolloffFactor = 0.6; // Gentler rolloff for a more cohesive mix
+      
+      const autoGain = this.ctx.createGain();
+      autoGain.gain.value = 1.0;
       
       const gain = this.ctx.createGain();
       // Apply initial mute/solo/vol limits
@@ -365,7 +447,8 @@ export class AudioEngine {
          gain.gain.value = t.volume;
       }
 
-      source.connect(gain);
+      source.connect(autoGain);
+      autoGain.connect(gain);
       gain.connect(panner);
       
       panner.connect(this.masterDry);
@@ -376,7 +459,7 @@ export class AudioEngine {
          panner.connect(this.convolver);
       }
 
-      this.nodes.set(t.id, { source, panner, gain });
+      this.nodes.set(t.id, { source, panner, gain, autoGain });
 
       // Handle end of longest track
       if (t.analysis.duration === this.duration) {
@@ -405,14 +488,14 @@ export class AudioEngine {
 
       if (this.pauseOffset < track.analysis.duration) {
          node.source.start(0, this.pauseOffset);
-         this.schedulePannerAutomation(track, node.panner, this.pauseOffset);
+         this.schedulePannerAutomation(track, node, this.pauseOffset);
       }
     }
 
     this.loop();
   }
 
-  private schedulePannerAutomation(track: Track, panner: PannerNode, offset: number) {
+  private schedulePannerAutomation(track: Track, nodeInfo: { panner: PannerNode, autoGain: GainNode }, offset: number) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     const path = track.analysis.path;
@@ -420,9 +503,10 @@ export class AudioEngine {
     
     if (futurePath.length > 0) {
        const startNode = futurePath[0];
-       panner.positionX.setValueAtTime(startNode.x, now);
-       panner.positionY.setValueAtTime(startNode.y, now);
-       panner.positionZ.setValueAtTime(startNode.z, now);
+       nodeInfo.panner.positionX.setValueAtTime(startNode.x, now);
+       nodeInfo.panner.positionY.setValueAtTime(startNode.y, now);
+       nodeInfo.panner.positionZ.setValueAtTime(startNode.z, now);
+       nodeInfo.autoGain.gain.setValueAtTime(startNode.dynamicVolume, now);
        
        for (let i = 1; i < futurePath.length; i++) {
          const node = futurePath[i];
@@ -431,9 +515,10 @@ export class AudioEngine {
          // setTargetAtTime creates a much smoother transition (exponential approach)
          // than linearRampToValueAtTime, removing zippering artifacts completely.
          const timeConstant = 0.05; // 50ms smoothing
-         panner.positionX.setTargetAtTime(node.x, scheduleTime, timeConstant);
-         panner.positionY.setTargetAtTime(node.y, scheduleTime, timeConstant);
-         panner.positionZ.setTargetAtTime(node.z, scheduleTime, timeConstant);
+         nodeInfo.panner.positionX.setTargetAtTime(node.x, scheduleTime, timeConstant);
+         nodeInfo.panner.positionY.setTargetAtTime(node.y, scheduleTime, timeConstant);
+         nodeInfo.panner.positionZ.setTargetAtTime(node.z, scheduleTime, timeConstant);
+         nodeInfo.autoGain.gain.setTargetAtTime(node.dynamicVolume, scheduleTime, timeConstant);
        }
     }
   }

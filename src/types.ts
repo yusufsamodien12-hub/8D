@@ -5,6 +5,8 @@
 
 export type InstrumentType = 'vocals' | 'drums' | 'bass' | 'other';
 
+export type HeadphoneProfile = 'flat' | 'open_back' | 'bass_boost' | 'stereo';
+
 export interface SpatialNode {
   time: number;
   x: number;
@@ -14,6 +16,7 @@ export interface SpatialNode {
   angle: number;
   radius: number;
   elevationAngle: number;
+  dynamicVolume: number;
 }
 
 export interface TrackAnalysis {

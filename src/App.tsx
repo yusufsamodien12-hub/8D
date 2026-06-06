@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { audioEngine } from './lib/audio';
-import { AppState, Track } from './types';
+import { AppState, Track, HeadphoneProfile } from './types';
 import { FileUpload } from './components/FileUpload';
 import { AutomationTimeline } from './components/AutomationTimeline';
 import { SpectrumVisualizer } from './components/SpectrumVisualizer';
@@ -15,6 +15,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [reverbLevel, setReverbLevel] = useState(0.25);
+  const [profile, setProfile] = useState<HeadphoneProfile>('flat');
 
   useEffect(() => {
     audioEngine.onTimeUpdate((time) => setCurrentTime(time));
@@ -24,6 +25,10 @@ export default function App() {
   useEffect(() => {
     audioEngine.setReverbLevel(reverbLevel);
   }, [reverbLevel]);
+
+  useEffect(() => {
+    audioEngine.setProfile(profile);
+  }, [profile]);
 
   const handleFileSelect = async (file: File) => {
     setAppState('analyzing');
@@ -189,10 +194,13 @@ export default function App() {
             <div className="lg:col-span-4 xl:col-span-3">
                <TrackMixer 
                   tracks={tracks}
+                  currentTime={currentTime}
                   onUpdateTrack={handleUpdateTrack}
                   onRemoveTrack={handleRemoveTrack}
                   reverbLevel={reverbLevel}
                   onReverbLevelChange={setReverbLevel}
+                  profile={profile}
+                  onProfileChange={setProfile}
                />
             </div>
             
