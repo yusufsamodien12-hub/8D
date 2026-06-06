@@ -18,19 +18,31 @@ export function SpectrumVisualizer({ isPlaying }: SpectrumVisualizerProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    
-    if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
+    let currentW = 0;
+    let currentH = 0;
+
+    const ro = new ResizeObserver((entries) => {
+       for (const entry of entries) {
+           const { width, height } = entry.contentRect;
+           const dpr = window.devicePixelRatio || 1;
+           if (width > 0 && height > 0) {
+               canvas.width = width * dpr;
+               canvas.height = height * dpr;
+               ctx.scale(dpr, dpr);
+               currentW = width;
+               currentH = height;
+           }
+       }
+    });
+
+    if (canvas.parentElement) {
+       ro.observe(canvas.parentElement);
     }
 
     const loop = () => {
-      if (!canvasRef.current || !ctx) return;
-      const W = canvasRef.current.getBoundingClientRect().width;
-      const H = canvasRef.current.getBoundingClientRect().height;
+      if (!canvas || !ctx || currentW === 0 || currentH === 0) return;
+      const W = currentW;
+      const H = currentH;
       
       ctx.clearRect(0, 0, W, H);
       
@@ -66,6 +78,7 @@ export function SpectrumVisualizer({ isPlaying }: SpectrumVisualizerProps) {
 
     return () => {
       if (reqRef.current) cancelAnimationFrame(reqRef.current);
+      ro.disconnect();
     };
   }, [isPlaying]);
 

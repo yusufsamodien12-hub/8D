@@ -171,7 +171,7 @@ export default function App() {
                       {isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
                     </button>
                     <button 
-                      onClick={() => {stop(); setTracks([]); audioEngine.setTrackState([]);}}
+                      onClick={() => { audioEngine.clear(); setTracks([]); }}
                       className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-zinc-800 text-red-400 transition-colors"
                       title="Clear Project"
                     >

@@ -127,12 +127,32 @@ export class AudioEngine {
   }
 
   deleteTrack(id: string) {
+    const nodeInfo = this.nodes.get(id);
+    if(nodeInfo) {
+      try { nodeInfo.source.stop(); } catch(e){}
+      nodeInfo.source.disconnect();
+      nodeInfo.autoGain.disconnect();
+      nodeInfo.gain.disconnect();
+      nodeInfo.panner.disconnect();
+      this.nodes.delete(id);
+    }
     this.tracks = this.tracks.filter(t => t.id !== id);
     if (this.isPlaying) {
       const wasPlaying = this.isPlaying;
       this.pause();
       if (wasPlaying) this.play();
     }
+  }
+
+  clear() {
+    this.pause();
+    for (const id of Array.from(this.nodes.keys())) {
+        this.deleteTrack(id);
+    }
+    this.tracks = [];
+    this.pauseOffset = 0;
+    this.startTime = 0;
+    if (this.onTimeUpdateCallback) this.onTimeUpdateCallback(0);
   }
 
   get duration() {

@@ -26,47 +26,62 @@ export function AutomationTimeline({ tracks, currentTime, duration, onSeek }: Au
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    
-    const W = rect.width;
-    const H = rect.height;
+    let currentW = canvas.clientWidth;
+    let currentH = canvas.clientHeight;
 
-    ctx.clearRect(0, 0, W, H);
+    const draw = () => {
+        if (!currentW || !currentH) return;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = currentW * dpr;
+        canvas.height = currentH * dpr;
+        ctx.scale(dpr, dpr);
+        
+        ctx.clearRect(0, 0, currentW, currentH);
+        const activeTracks = tracks.filter(t => !t.isMuted);
+        const hasSolo = activeTracks.some(t => t.isSoloed);
 
-    // Draw active track paths
-    const activeTracks = tracks.filter(t => !t.isMuted);
-    const hasSolo = activeTracks.some(t => t.isSoloed);
+        activeTracks.forEach(track => {
+           if (hasSolo && !track.isSoloed) return;
 
-    activeTracks.forEach(track => {
-       if (hasSolo && !track.isSoloed) return;
-
-       ctx.beginPath();
-       ctx.strokeStyle = colors[track.type] || colors.other;
-       ctx.lineWidth = 1.5;
-       
-       const path = track.analysis.path;
-       const steps = 150;
-       
-       for (let i=0; i<=steps; i++) {
-           const time = (i/steps) * duration;
-           const node = path.find(p => p.time >= time) || path[path.length - 1];
-           if(!node) continue;
+           ctx.beginPath();
+           ctx.strokeStyle = colors[track.type] || colors.other;
+           ctx.lineWidth = 1.5;
            
-           const x = (time / duration) * W;
-           // Display elevation + energy combination visually to show automation map
-           const mappedY = H - (node.energy * H * 0.5) - (node.elevationAngle * 20) - (H*0.1); 
+           const path = track.analysis.path;
+           const steps = 150;
            
-           if (i===0) ctx.moveTo(x, mappedY);
-           else ctx.lineTo(x, mappedY);
+           for (let i=0; i<=steps; i++) {
+               const time = (i/steps) * duration;
+               const node = path.find(p => p.time >= time) || path[path.length - 1];
+               if(!node) continue;
+               
+               const x = (time / duration) * currentW;
+               const mappedY = currentH - (node.energy * currentH * 0.5) - (node.elevationAngle * 20) - (currentH*0.1); 
+               
+               if (i===0) ctx.moveTo(x, mappedY);
+               else ctx.lineTo(x, mappedY);
+           }
+           ctx.stroke();
+        });
+    };
+
+    const ro = new ResizeObserver((entries) => {
+       for (const entry of entries) {
+           currentW = entry.contentRect.width;
+           currentH = entry.contentRect.height;
+           draw();
        }
-       ctx.stroke();
     });
 
-  }, [tracks, duration, canvasRef.current?.getBoundingClientRect().width]);
+    if (wrapperRef.current) {
+        ro.observe(wrapperRef.current);
+    }
+    
+    draw();
+
+    return () => ro.disconnect();
+
+  }, [tracks, duration]);
 
   const handleInteraction = (e: React.MouseEvent<HTMLDivElement>) => {
      if (!wrapperRef.current) return;
